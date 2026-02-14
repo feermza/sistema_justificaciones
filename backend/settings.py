@@ -41,11 +41,13 @@ INSTALLED_APPS = [
     # MIS AGREGADOS:
     'rest_framework', #Para crear la API
     'core', # La aplicación de justificaciones
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -78,8 +80,12 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'sistema_justificaciones',
+        'USER': 'postgres',      # Tu usuario de postgres
+        'PASSWORD': 'root', # Tu contraseña
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }
 
@@ -119,3 +125,25 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Configuración de CORS
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8080",
+]
+
+# Configuración de Email para Desarrollo
+# En lugar de enviar, lo muestra en la consola (Terminal de Python)
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+EMAIL_HOST_USER = 'sistema@frn.utn.edu.ar' # Remitente ficticio
+
+# configuración para archivos subidos por usuarios
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# --- CONFIGURACIÓN DE EMAIL (MODO DESARROLLO) ---
+# Esto hace que los correos aparezcan en la terminal negra en lugar de enviarse
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+EMAIL_HOST = 'localhost'
+EMAIL_PORT = 1025
