@@ -5,6 +5,7 @@ import Login from './components/Login.vue'
 import NuevaSolicitud from './components/NuevaSolicitud.vue' // <--- IMPORTAR
 import BandejaJefe from './components/BandejaJefe.vue'
 import BandejaRRHH from './components/BandejaRRHH.vue'
+import ActivarCuenta from './components/ActivarCuenta.vue'
 
 // Estado: ¿Tenemos un usuario logueado? Al principio es null (nadie)
 const usuarioActual = ref(null)
@@ -12,6 +13,7 @@ const misSolicitudes = ref([])
 const cargandoDatos = ref(false)
 const mostrarFormulario = ref(false)
 const solicitudAEditar = ref(null)
+const mostrarActivacion = ref(false)
 
 // Función que se ejecuta cuando el Login avisa que tuvo éxito
 const alLoguearse = async (agente) => {
@@ -60,6 +62,10 @@ const abrirNueva = () => {
   mostrarFormulario.value = true
 }
 
+// Funciones para navegar
+const irAActivacion = () => { mostrarActivacion.value = true }
+const irALogin = () => { mostrarActivacion.value = false }
+
 const cerrarSesion = () => {
   usuarioActual.value = null
   misSolicitudes.value = []
@@ -79,7 +85,13 @@ const claseBadge = (estado) => {
   <div class="min-vh-100 bg-light">
     
     <div v-if="!usuarioActual" class="d-flex justify-content-center align-items-center min-vh-100">
-      <Login @login-exitoso="alLoguearse" />
+      <div v-if="mostrarActivacion">
+        <ActivarCuenta @volver-login="irALogin" />
+      </div>
+
+      <div v-else>
+        <Login @login-exitoso="alLoguearse" @ir-a-activar="irAActivacion" />
+      </div>
     </div>
 
     <div v-else>

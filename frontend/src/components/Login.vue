@@ -2,33 +2,46 @@
 import { ref } from 'vue'
 import axios from 'axios'
 
-// Definimos los eventos que este componente puede enviar al padre (App.vue)
-const emit = defineEmits(['login-exitoso'])
+const emit = defineEmits(['login-exitoso', 'ir-a-activar'])
 
 const legajo = ref('')
-const dni = ref('')
+const password = ref('') // Antes era DNI, ahora es Password/PIN
 const error = ref('')
 const cargando = ref(false)
+const mostrarPassword = ref(false)
 
 const intentarIngresar = async () => {
   error.value = ''
+  
+  if (!legajo.value || !password.value) {
+    error.value = "Por favor complete Legajo y Contraseña."
+    return
+  }
+
   cargando.value = true
   
   try {
-    // Consultamos a tu API nueva con los filtros
-    const respuesta = await axios.get(`http://127.0.0.1:8000/api/agentes/?legajo=${legajo.value}&dni=${dni.value}`)
-    
-    // Si la lista tiene al menos 1 resultado, es que los datos son correctos
-    if (respuesta.data.length > 0) {
-      const agenteEncontrado = respuesta.data[0]
-      // Avisamos a App.vue que encontramos al usuario
-      emit('login-exitoso', agenteEncontrado)
-    } else {
-      error.value = 'Legajo o DNI incorrectos. Verifique sus datos.'
+    // CAMBIO CRÍTICO: Ahora usamos POST al endpoint de login real
+    const payload = {
+      legajo: legajo.value,
+      password: password.value
     }
+
+    const respuesta = await axios.post('http://127.0.0.1:8000/api/agentes/login/', payload)
+    
+    // Si llegamos acá, es 200 OK
+    const agenteEncontrado = respuesta.data
+    emit('login-exitoso', agenteEncontrado)
+
   } catch (e) {
-    error.value = 'Error de conexión con el servidor.'
     console.error(e)
+    if (e.response && e.response.status === 401) {
+      error.value = 'Legajo o Contraseña incorrectos.'
+    } else if (e.response && e.response.data.error) {
+      error.value = e.response.data.error
+    } else {
+      error.value = 'Error de conexión con el servidor.'
+    }
   } finally {
     cargando.value = false
   }
@@ -51,17 +64,24 @@ const intentarIngresar = async () => {
           type="number" 
           class="form-control form-control-lg" 
           placeholder="Ej: 1234"
+          @keyup.enter="intentarIngresar"
         >
       </div>
 
       <div class="mb-4">
-        <label class="form-label fw-bold">DNI (Sin puntos)</label>
-        <input 
-          v-model="dni" 
-          type="text" 
-          class="form-control form-control-lg" 
-          placeholder="Ej: 30123456"
-        >
+        <label class="form-label fw-bold">Contraseña / PIN</label>
+        <div class="input-group">
+          <input 
+            :type="mostrarPassword ? 'text' : 'password'"
+            v-model="password" 
+            class="form-control form-control-lg" 
+            placeholder="Ingrese su clave..."
+            @keyup.enter="intentarIngresar"
+          >
+          <button class="btn btn-outline-secondary" type="button" @click="mostrarPassword = !mostrarPassword">
+            👁️
+          </button>
+        </div>
       </div>
 
       <div v-if="error" class="alert alert-danger text-center" role="alert">
@@ -77,12 +97,12 @@ const intentarIngresar = async () => {
         {{ cargando ? 'Verificando...' : 'Ingresar al Sistema' }}
       </button>
     </div>
+    
     <div class="card-footer text-center py-3 bg-light">
-      <small class="text-muted">Departamento de Personal</small>
+      <p class="mb-1 text-muted small">¿Es tu primera vez?</p>
+      <a href="#" class="fw-bold text-success text-decoration-none" @click.prevent="$emit('ir-a-activar')">
+        🚀 Activar mi cuenta
+      </a>
     </div>
   </div>
 </template>
-
-<style scoped>
-/* Solo necesitamos esto si queremos ajustes finos */
-</style>
