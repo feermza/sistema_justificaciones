@@ -1,11 +1,21 @@
 from rest_framework import viewsets
 from .models import Agente, TipoLicencia, Solicitud
-from .serializers import AgenteSerializer, TipoLicenciaSerializer, SolicitudSerializer
-from django.core.mail import send_mail  # <--- IMPORTAR ESTO ARRIBA
+from .serializers import (
+    AgenteSerializer,
+    TipoLicenciaSerializer,
+    SolicitudSerializer,
+    ActivacionPaso1Serializer,
+    ActivacionPaso2Serializer,
+)
+from django.core.mail import send_mail
 from django.conf import settings
 import csv
 from django.http import HttpResponse
 from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.core.signing import TimestampSigner
+from django.contrib.auth.models import User
+from django.contrib.auth import authenticate
 
 
 # Vista para ver/editar Agentes
@@ -25,6 +35,97 @@ class AgenteViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(legajo=legajo, dni=dni)
 
         return queryset
+
+    @action(detail=False, methods=["post"])
+    def validar_identidad(self, request):
+        """Paso 1: Recibe Legajo+DNI+Fecha. Retorna un Token Temporal."""
+        serializer = ActivacionPaso1Serializer(data=request.data)
+
+        if serializer.is_valid():
+            agente = serializer.context["agente"]
+
+            # Generamos un token firmado que vale por 10 minutos
+            signer = TimestampSigner()
+            token = signer.sign(agente.id)
+
+            # Determinamos qué tipo de usuario es para decirle al frontend qué mostrar
+            es_rrhh = agente.es_rrhh  # Misma lógica de tu modelo
+            tipo_input = "password" if es_rrhh else "pin"
+
+            return Response(
+                {
+                    "status": "ok",
+                    "token": token,
+                    "tipo_usuario": tipo_input,
+                    "mensaje": "Identidad validada. Proceda a configurar su clave.",
+                }
+            )
+
+        return Response(serializer.errors, status=400)
+
+    @action(detail=False, methods=["post"])
+    def activar_cuenta(self, request):
+        """Paso 2: Recibe Token+Clave. Crea el Usuario Django y activa."""
+        serializer = ActivacionPaso2Serializer(data=request.data)
+
+        if serializer.is_valid():
+            agente = serializer.context["agente"]
+            password = serializer.validated_data["password"]
+
+            # 1. Crear el Usuario Django (Auth)
+            # Usamos el legajo como username para garantizar unicidad
+            username = str(agente.legajo)
+
+            try:
+                # Si existía un usuario viejo huerfano, lo borramos para evitar error
+                User.objects.filter(username=username).delete()
+
+                user = User.objects.create_user(
+                    username=username, email=agente.email, password=password
+                )
+
+                # 2. Vincular Agente -> Usuario
+                agente.usuario = user
+                agente.save()
+
+                return Response(
+                    {"status": "ok", "mensaje": "¡Cuenta activada exitosamente!"}
+                )
+
+            except Exception as e:
+                return Response({"error": str(e)}, status=500)
+
+        return Response(serializer.errors, status=400)
+
+    @action(detail=False, methods=["post"])
+    def login(self, request):
+        """Recibe Legajo y Password/PIN. Valida contra Django Auth."""
+        legajo = request.data.get("legajo")
+        password = request.data.get("password")
+
+        if not legajo or not password:
+            return Response({"error": "Faltan datos"}, status=400)
+
+        # Intentamos autenticar usando el legajo como username
+        # (Así lo guardamos en activar_cuenta: username=str(legajo))
+        user = authenticate(username=str(legajo), password=password)
+
+        if user is not None:
+            # ¡Credenciales correctas!
+            if hasattr(user, "agente_perfil"):
+                agente = user.agente_perfil
+                # Devolvemos los datos del agente para que el Frontend sepa quién es
+                serializer = AgenteSerializer(agente)
+                return Response(serializer.data)
+            else:
+                return Response(
+                    {"error": "Usuario válido pero sin perfil de Agente asociado."},
+                    status=403,
+                )
+        else:
+            return Response(
+                {"error": "Credenciales inválidas. Revise Legajo y Clave."}, status=401
+            )
 
 
 # Vista para ver/editar Tipos de Licencia
