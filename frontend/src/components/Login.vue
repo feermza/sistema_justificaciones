@@ -35,11 +35,15 @@ const intentarIngresar = async () => {
 
   } catch (e) {
     console.error(e)
-    if (e.response && e.response.status === 401) {
-      error.value = 'Legajo o Contraseña incorrectos.'
-    } else if (e.response && e.response.data.error) {
+    if (e.response && e.response.data && e.response.data.error) {
       error.value = e.response.data.error
-    } else {
+    } 
+    // Si no hay mensaje, pero es error 401, usamos el genérico
+    else if (e.response && e.response.status === 401) {
+      error.value = 'Legajo o Contraseña incorrectos.'
+    } 
+    // Fallback para otros errores
+    else {
       error.value = 'Error de conexión con el servidor.'
     }
   } finally {
@@ -78,9 +82,6 @@ const intentarIngresar = async () => {
             placeholder="Ingrese su clave..."
             @keyup.enter="intentarIngresar"
           >
-          <button class="btn btn-outline-secondary" type="button" @click="mostrarPassword = !mostrarPassword">
-            👁️
-          </button>
         </div>
       </div>
 

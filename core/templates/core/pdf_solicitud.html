@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Solicitud de Licencia</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 12pt;
+            line-height: 1.5;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .header h1 { margin: 0; font-size: 18pt; }
+        .header h2 { margin: 0; font-size: 14pt; color: #555; }
+        
+        .info-box {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin-bottom: 20px;
+            background-color: #f9f9f9;
+        }
+        .row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+        .label { font-weight: bold; width: 150px; display: inline-block; }
+        
+        .motivo {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px dashed #999;
+            min-height: 50px;
+        }
+
+        .firmas {
+            margin-top: 80px;
+            width: 100%;
+        }
+        .firma-box {
+            width: 45%;
+            display: inline-block;
+            border-top: 1px solid #000;
+            text-align: center;
+            padding-top: 5px;
+        }
+        .footer {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 9pt;
+            color: #777;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Universidad Tecnológica Nacional</h1>
+        <h2>Facultad Regional [Tu Regional]</h2>
+        <p>Departamento de Recursos Humanos</p>
+    </div>
+
+    <div style="text-align: center; margin-bottom: 20px;">
+        <h3>SOLICITUD DE LICENCIA / JUSTIFICACIÓN</h3>
+        <p>Nro. de Solicitud: <strong>#{{ solicitud.id }}</strong></p>
+    </div>
+
+    <div class="info-box">
+        <div><span class="label">Agente:</span> {{ solicitud.agente.apellido }}, {{ solicitud.agente.nombre }}</div>
+        <div><span class="label">Legajo:</span> {{ solicitud.agente.legajo }}</div>
+        <div><span class="label">Área:</span> {{ solicitud.agente.area.nombre }}</div>
+    </div>
+
+    <div class="info-box">
+        <div><span class="label">Tipo de Licencia:</span> <strong>{{ solicitud.tipo.descripcion }}</strong></div>
+        <div><span class="label">Fecha de Inicio:</span> {{ solicitud.fecha_inicio|date:"d/m/Y" }}</div>
+        <div><span class="label">Cantidad de Días:</span> {{ solicitud.dias }}</div>
+        <div><span class="label">Fecha Solicitud:</span> {{ solicitud.fecha_solicitud|date:"d/m/Y H:i" }}</div>
+    </div>
+
+    <div class="motivo">
+        <strong>Motivo / Observaciones:</strong><br>
+        {{ solicitud.motivo|default:"Sin observaciones declaradas." }}
+    </div>
+
+    <div class="firmas">
+        <div class="firma-box" style="float: left;">
+            Firma del Agente<br>
+            <small>{{ solicitud.agente.nombre }} {{ solicitud.agente.apellido }}</small>
+        </div>
+        
+        <div class="firma-box" style="float: right;">
+            Firma Responsable<br>
+            <small>Recursos Humanos / Autoridad</small>
+        </div>
+    </div>
+
+    <div class="footer">
+        Documento generado automáticamente por el Sistema de Justificaciones UTN.<br>
+        Fecha de impresión: {{ fecha_aprobacion|date:"d/m/Y H:i" }}
+    </div>
+
+</body>
+</html>

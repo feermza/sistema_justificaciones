@@ -41,9 +41,18 @@ else {
 // Paso 2: Envío al servidor
   procesando.value = true
   try {
-    await axios.patch(`http://127.0.0.1:8000/api/solicitudes/${solicitudId}/`, {
+    // PREPARAMOS EL PAQUETE DE DATOS
+    const datos = {
       estado: decision
-    })
+    }
+
+    // ¡CORRECCIÓN IMPORTANTE!
+    // Si hay un motivo escrito (es rechazo), lo agregamos al paquete
+    if (motivo) {
+      datos.motivo_rechazo = motivo
+    }
+
+    await axios.patch(`http://127.0.0.1:8000/api/solicitudes/${solicitudId}/`, datos)
 
     alert(decision === 'IMPACTADO' ? "✅ Solicitud Aprobada." : "⛔ Solicitud Rechazada con motivo.");
     await cargarParaRRHH()

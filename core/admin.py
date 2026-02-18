@@ -1,29 +1,24 @@
 from django.contrib import admin
-from .models import Agente, TipoLicencia, Solicitud
+from .models import Agente, TipoLicencia, Solicitud, Area
 
-# Configuración para la tabla AGENTES
+# 1. Registrar Áreas
+admin.site.register(Area)
+
+
+# 2. Registrar Agentes (Con configuración personalizada para ver las columnas nuevas)
 @admin.register(Agente)
 class AgenteAdmin(admin.ModelAdmin):
-    list_display = ('legajo', 'apellido', 'nombre', 'id_sistema_reloj', 'email')
-    search_fields = ('legajo', 'apellido', 'nombre')
-    list_filter = ('supervisores',) # Filtro rápido por supervisor
-    
-    # Esto permite seleccionar supervisores de forma más amigable (con buscador)
-    # en lugar de una lista gigante.
-    filter_horizontal = ('supervisores',)
+    list_display = ("legajo", "apellido", "nombre", "area", "categoria")
+    list_filter = ("area", "categoria")
+    search_fields = ("legajo", "apellido", "nombre")
 
-# Configuración para la tabla TIPOS DE LICENCIA
-@admin.register(TipoLicencia)
-class TipoLicenciaAdmin(admin.ModelAdmin):
-    list_display = ('codigo', 'descripcion', 'texto_para_reloj', 'requiere_aviso')
-    search_fields = ('codigo', 'descripcion')
 
-# Configuración para la tabla SOLICITUDES
+# 3. Registrar Tipos de Licencia
+admin.site.register(TipoLicencia)
+
+
+# 4. Registrar Solicitudes
 @admin.register(Solicitud)
 class SolicitudAdmin(admin.ModelAdmin):
-    list_display = ('fecha_inicio', 'agente', 'tipo', 'estado', 'jefe_seleccionado')
-    list_filter = ('estado', 'tipo', 'fecha_inicio')
-    search_fields = ('agente__apellido', 'agente__legajo') # Busca por apellido del agente
-    
-    # Hacemos que la fecha de solicitud sea de solo lectura (para que nadie la truque)
-    readonly_fields = ('fecha_solicitud',)
+    list_display = ("agente", "tipo", "fecha_inicio", "estado")
+    list_filter = ("estado", "tipo")

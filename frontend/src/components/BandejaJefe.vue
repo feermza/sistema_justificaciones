@@ -48,8 +48,9 @@ onMounted(() => {
   <div class="card border-primary mb-4 shadow-sm">
     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
       <div class="d-flex align-items-center">
-        <span class="fs-4 me-2">👮</span>
-        <h5 class="mb-0">Modo Supervisor</h5>
+
+        <span class="fs-4 me-2">👥</span>
+        <h5 class="mb-0">Gestión de Personal a Cargo</h5>
       </div>
       <span class="badge bg-white text-primary rounded-pill fs-6">
         {{ solicitudesPendientes.length }} Pendientes

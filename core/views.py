@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from django.core.signing import TimestampSigner
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
+from .utils import generar_pdf_legajo
 
 
 # Vista para ver/editar Agentes
@@ -99,22 +100,19 @@ class AgenteViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"])
     def login(self, request):
-        """Recibe Legajo y Password/PIN. Valida contra Django Auth."""
+        """Recibe Legajo y Password/PIN. Valida contra Django Auth con mensajes inteligentes."""
         legajo = request.data.get("legajo")
         password = request.data.get("password")
 
         if not legajo or not password:
             return Response({"error": "Faltan datos"}, status=400)
 
-        # Intentamos autenticar usando el legajo como username
-        # (Así lo guardamos en activar_cuenta: username=str(legajo))
+        # 1. Intentamos autenticar (Usuario ya activo y clave correcta)
         user = authenticate(username=str(legajo), password=password)
 
         if user is not None:
-            # ¡Credenciales correctas!
             if hasattr(user, "agente_perfil"):
                 agente = user.agente_perfil
-                # Devolvemos los datos del agente para que el Frontend sepa quién es
                 serializer = AgenteSerializer(agente)
                 return Response(serializer.data)
             else:
@@ -122,10 +120,35 @@ class AgenteViewSet(viewsets.ModelViewSet):
                     {"error": "Usuario válido pero sin perfil de Agente asociado."},
                     status=403,
                 )
+
+        # 2. Si falló la autenticación, investigamos POR QUÉ para ayudar al usuario
         else:
-            return Response(
-                {"error": "Credenciales inválidas. Revise Legajo y Clave."}, status=401
-            )
+            # Buscamos si el legajo existe en nuestra base de empleados
+            try:
+                agente = Agente.objects.get(legajo=legajo)
+
+                # CASO A: El empleado existe, pero NO tiene usuario vinculado (No activó cuenta)
+                if agente.usuario is None:
+                    return Response(
+                        {
+                            "error": "⚠️ Tu cuenta no está activada. Haz clic en 'Activar mi cuenta' abajo.",
+                            "necesita_activacion": True,
+                        },
+                        status=401,
+                    )
+
+                # CASO B: El empleado existe Y tiene usuario -> La contraseña está mal
+                else:
+                    return Response(
+                        {
+                            "error": "⛔ Contraseña o PIN incorrecto. Inténtalo de nuevo."
+                        },
+                        status=401,
+                    )
+
+            except Agente.DoesNotExist:
+                # CASO C: El legajo ni siquiera existe en la base de datos
+                return Response({"error": "⛔ Legajo no encontrado."}, status=404)
 
 
 # Vista para ver/editar Tipos de Licencia
@@ -221,6 +244,9 @@ class SolicitudViewSet(viewsets.ModelViewSet):
 
         # CASO A: SOLICITUD APROBADA (Impactada en el sistema)
         if instance.estado == "IMPACTADO":
+            print("🖨️ Generando PDF de respaldo...")
+            generar_pdf_legajo(instance)
+
             asunto = f"✅ Solicitud Aprobada: {instance.tipo.descripcion}"
             mensaje = f"""
             Hola {agente.nombre},

@@ -12,23 +12,41 @@ class AgenteSimpleSerializer(serializers.ModelSerializer):
 
 # 2. El serializer principal de Agentes
 class AgenteSerializer(serializers.ModelSerializer):
-    # Campo mágico: muestra los detalles de los supervisores, no solo el ID
-    supervisores_detalle = AgenteSimpleSerializer(
-        source="supervisores", many=True, read_only=True
-    )
+    # CAMBIO CRÍTICO: Ya no leemos una lista fija, la calculamos al vuelo
+    supervisores_detalle = serializers.SerializerMethodField()
 
     es_jefe = serializers.SerializerMethodField()
     es_rrhh = serializers.SerializerMethodField()
+    nombre_area = serializers.CharField(
+        source="area.nombre", read_only=True
+    )  # Para mostrar en el frontend
 
     class Meta:
         model = Agente
         fields = "__all__"
 
     def get_es_jefe(self, obj):
-        return obj.subordinados.exists()
+        # Ahora ser jefe depende de TU categoría, no de si alguien te eligió
+        return obj.es_autoridad  # Usa la propiedad que creamos en el modelo
 
     def get_es_rrhh(self, obj):
         return obj.es_rrhh
+
+    # --- AQUÍ ESTÁ LA MAGIA DE LA JERARQUÍA ---
+    def get_supervisores_detalle(self, obj):
+        """
+        Retorna la lista de posibles Jefes para este agente.
+        Regla: Misma Área + Categoría (02, 03 o 04).
+        """
+        if not obj.area:
+            return []  # Si no tiene área asignada, no tiene jefes
+
+        # Buscamos agentes de la MISMA ÁREA que sean AUTORIDADES
+        jefes = Agente.objects.filter(
+            area=obj.area, categoria__in=["02", "03", "04"]
+        ).exclude(id=obj.id)  # Me excluyo a mí mismo (si yo fuera jefe también)
+
+        return AgenteSimpleSerializer(jefes, many=True).data
 
 
 class TipoLicenciaSerializer(serializers.ModelSerializer):
@@ -48,55 +66,84 @@ class SolicitudSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
     def validate(self, data):
-        # PASO 1: DETECTAR SI ES UN TRÁMITE ADMINISTRATIVO
-        if self.instance and set(data.keys()) == {"estado"}:
+        # 1. RECUPERACIÓN DE DATOS (Strategy: Incoming Data > Existing Data)
+        # Definimos las variables críticas desde el principio para evitar el UnboundLocalError
+
+        # AGENTE
+        if "agente" in data:
+            agente = data["agente"]
+        elif self.instance:
+            agente = self.instance.agente
+        else:
+            # Si es creación nueva y falta el agente, DRF lanzará error de campo requerido antes de llegar aquí.
+            # Retornamos data para que siga el flujo estándar de error.
             return data
 
-        if self.instance:
-            # Validación de cambios críticos
-            fecha_entrante = data.get("fecha_inicio", self.instance.fecha_inicio)
-            tipo_entrante = data.get("tipo", self.instance.tipo)
-            fecha_guardada = self.instance.fecha_inicio
-            tipo_guardado = self.instance.tipo
-
-            if fecha_entrante == fecha_guardada and tipo_entrante == tipo_guardado:
-                return data
-
-        # PASO 2: VALIDACIÓN DE REGLAS
-        if self.instance:
-            agente = data.get("agente", self.instance.agente)
-            # tipo_licencia no se usa directamente en la query si ya filtramos por codigo abajo,
-            # pero lo dejamos por consistencia si fuera necesario.
-            # tipo_licencia = data.get('tipo', self.instance.tipo)
-            fecha_obj = data.get("fecha_inicio", self.instance.fecha_inicio)
+        # TIPO DE LICENCIA
+        if "tipo" in data:
+            tipo_licencia = data["tipo"]
+        elif self.instance:
+            tipo_licencia = self.instance.tipo
         else:
-            agente = data.get("agente")
-            tipo_licencia = data.get("tipo")  # Se obtiene del data
-            fecha_obj = data.get("fecha_inicio")
+            return data
 
-        # --- REGLA 1: ART 85 ---
-        # Verificamos el código usando el objeto tipo_licencia recuperado
-        tipo_codigo = (
-            tipo_licencia.codigo
-            if hasattr(tipo_licencia, "codigo")
-            else data.get("tipo").codigo
-        )
+        # FECHA INICIO
+        if "fecha_inicio" in data:
+            fecha_obj = data["fecha_inicio"]
+        elif self.instance:
+            fecha_obj = self.instance.fecha_inicio
+        else:
+            return data
 
-        if tipo_codigo.lower() == "art_85":
+        # ------------------------------------------------------------------
+        # PASO 2: Optimización para Actualizaciones de Estado (Aprobación Jefe/RRHH)
+        # Si estamos editando y NO cambiaron las fechas ni el tipo, saltamos validaciones pesadas.
+        if self.instance:
+            # Verificamos si lo que viene en data es diferente a lo guardado
+            cambia_fecha = (
+                "fecha_inicio" in data
+                and data["fecha_inicio"] != self.instance.fecha_inicio
+            )
+            cambia_tipo = "tipo" in data and data["tipo"] != self.instance.tipo
+
+            # Si NO cambia ni fecha ni tipo, asumimos que es solo un cambio de estado/motivo
+            # y retornamos data directamente.
+            if not cambia_fecha and not cambia_tipo:
+                return data
+        # ------------------------------------------------------------------
+
+        # PASO 3: VALIDACIÓN DE REGLAS DE NEGOCIO
+
+        # --- REGLA 1: ART 85 (Topes Mensuales y Anuales) ---
+        # Aseguramos obtener el código string correctamente
+        try:
+            codigo_str = tipo_licencia.codigo
+        except AttributeError:
+            # Fallback por si tipo_licencia viene como diccionario o ID raw (raro en este punto pero seguro)
+            codigo_str = str(tipo_licencia)
+
+        if codigo_str.lower() == "art_85":
+            # Tope Mensual (2)
             query_mensual = Solicitud.objects.filter(
                 agente=agente,
                 tipo__codigo__iexact="art_85",
                 fecha_inicio__month=fecha_obj.month,
                 fecha_inicio__year=fecha_obj.year,
-            ).exclude(estado__contains="RECHAZADO")
+            ).exclude(estado__contains="RECHAZADO")  # Ignoramos rechazadas
 
             if self.instance:
                 query_mensual = query_mensual.exclude(pk=self.instance.pk)
 
             if query_mensual.count() >= 2:
-                # Corregido: Quitada la f
-                raise serializers.ValidationError("⛔ Tope mensual alcanzado (2).")
+                raise serializers.ValidationError(
+                    {
+                        "non_field_errors": [
+                            "⛔ Tope mensual para Art. 85 alcanzado (máximo 2)."
+                        ]
+                    }
+                )
 
+            # Tope Anual (6)
             query_anual = Solicitud.objects.filter(
                 agente=agente,
                 tipo__codigo__iexact="art_85",
@@ -107,18 +154,28 @@ class SolicitudSerializer(serializers.ModelSerializer):
                 query_anual = query_anual.exclude(pk=self.instance.pk)
 
             if query_anual.count() >= 6:
-                # Corregido: Quitada la f
-                raise serializers.ValidationError("⛔ Tope anual alcanzado (6).")
+                raise serializers.ValidationError(
+                    {
+                        "non_field_errors": [
+                            "⛔ Tope anual para Art. 85 alcanzado (máximo 6)."
+                        ]
+                    }
+                )
 
-        # --- REGLA 2: Duplicados ---
+        # --- REGLA 2: Duplicados (Mismo día) ---
         duplicados = Solicitud.objects.filter(
             agente=agente, fecha_inicio=fecha_obj
-        ).exclude(estado__contains="RECHAZADO")
+        ).exclude(
+            estado__contains="RECHAZADO"
+        )  # Permitimos re-pedir si la anterior fue rechazada
+
         if self.instance:
             duplicados = duplicados.exclude(pk=self.instance.pk)
 
         if duplicados.exists():
-            raise serializers.ValidationError("⚠️ Fecha duplicada.")
+            raise serializers.ValidationError(
+                {"fecha_inicio": "⚠️ Ya existe una solicitud activa para esta fecha."}
+            )
 
         return data
 
@@ -185,6 +242,7 @@ class ActivacionPaso2Serializer(serializers.Serializer):
         password = data["password"]
         signer = TimestampSigner()
 
+        # 1. Validar Token
         try:
             agente_id = signer.unsign(token, max_age=600)
         except (BadSignature, SignatureExpired):
@@ -193,10 +251,12 @@ class ActivacionPaso2Serializer(serializers.Serializer):
             )
 
         agente = Agente.objects.get(id=agente_id)
-
         es_rrhh = agente.es_rrhh
 
+        # --- VALIDACIONES DE SEGURIDAD ---
+
         if es_rrhh:
+            # === REGLAS PARA RRHH (Password fuerte) ===
             if len(password) < 8:
                 raise serializers.ValidationError(
                     "⛔ La contraseña debe tener al menos 8 caracteres."
@@ -205,48 +265,82 @@ class ActivacionPaso2Serializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     "⛔ La contraseña debe ser alfanumérica (letras y números)."
                 )
+
         else:
-            # REGLAS PARA USUARIO COMÚN (PIN)
+            # === REGLAS PARA USUARIO COMÚN (PIN) ===
+
+            # A. Formato Básico
             if not password.isdigit() or len(password) != 6:
                 raise serializers.ValidationError(
                     "⛔ El PIN debe ser numérico de 6 dígitos."
                 )
 
+            # B. Bloqueo de Secuencias Obvias (NUEVO)
+            # 1. Repetidos (Ej: 111111)
+            if len(set(password)) == 1:
+                raise serializers.ValidationError(
+                    "⛔ No use el mismo número repetido (Ej: 111111)."
+                )
+
+            # 2. Secuencias Ascendentes/Descendentes (Ej: 123456, 654321)
+            secuencia_asc = (
+                "01234567890123456789"  # Doble para capturar ciclos si fuera necesario
+            )
+            secuencia_desc = "98765432109876543210"
+
+            if password in secuencia_asc:
+                raise serializers.ValidationError(
+                    "⛔ No use secuencias ascendentes (Ej: 123456)."
+                )
+            if password in secuencia_desc:
+                raise serializers.ValidationError(
+                    "⛔ No use secuencias descendentes (Ej: 654321)."
+                )
+
+            # C. Bloqueo de DNI (Completo y Parcial)
             dni_str = str(agente.dni).replace(".", "").strip()
 
-            # 1. Chequeo Estricto: El PIN no puede ser igual al DNI (por si acaso)
             if password == dni_str:
                 raise serializers.ValidationError(
                     "⛔ El PIN no puede ser idéntico a su DNI."
                 )
 
-            # 2. Chequeo de Patrones (Tu corrección)
-            # Verificamos si los primeros 4 o últimos 4 del DNI están metidos en el PIN
             if len(dni_str) >= 4:
-                primeros_4 = dni_str[:4]  # Ej: 1234
-                ultimos_4 = dni_str[-4:]  # Ej: 5678
-
+                primeros_4 = dni_str[:4]
+                ultimos_4 = dni_str[-4:]
                 if primeros_4 in password:
                     raise serializers.ValidationError(
-                        f"⛔ El PIN no puede contener los primeros dígitos de su DNI ({primeros_4})."
+                        f"⛔ El PIN no puede contener el inicio de su DNI ({primeros_4})."
                     )
-
                 if ultimos_4 in password:
                     raise serializers.ValidationError(
-                        f"⛔ El PIN no puede contener los últimos dígitos de su DNI ({ultimos_4})."
+                        f"⛔ El PIN no puede contener el final de su DNI ({ultimos_4})."
                     )
 
-            # 3. Chequeo de Fecha de Nacimiento
-            fecha_str = str(agente.fecha_nacimiento).replace("-", "")  # YYYYMMDD
-            if password in fecha_str:
+            # D. Bloqueo de Fecha de Nacimiento (Formatos Varios)
+            f_nac = agente.fecha_nacimiento
+            variantes_fecha = [
+                f_nac.strftime("%d%m%y"),  # "251180" (DDMMAA)
+                f_nac.strftime("%d%m%Y"),  # "25111980"
+                f_nac.strftime("%Y%m%d"),  # "19801125"
+            ]
+            if password in variantes_fecha:
                 raise serializers.ValidationError(
-                    "⛔ Por seguridad, el PIN no puede contener su fecha de nacimiento."
+                    "⛔ No use su fecha de nacimiento completa como PIN."
                 )
 
-            # 4. Chequeo de secuencias obvias (Opcional pero recomendado)
-            if password in ["123456", "000000", "111111", "654321"]:
+            # Día y Mes juntos
+            dia_mes = f_nac.strftime("%d%m")  # "2511"
+            if dia_mes in password:
                 raise serializers.ValidationError(
-                    "⛔ El PIN es demasiado inseguro. No use secuencias simples."
+                    f"⛔ El PIN no puede contener su día y mes de nacimiento ({dia_mes})."
+                )
+
+            # Año completo
+            anio = f_nac.strftime("%Y")  # "1980"
+            if anio in password:
+                raise serializers.ValidationError(
+                    f"⛔ El PIN no puede contener su año de nacimiento ({anio})."
                 )
 
         self.context["agente"] = agente

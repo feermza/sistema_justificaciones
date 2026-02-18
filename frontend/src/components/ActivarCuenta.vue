@@ -124,6 +124,12 @@ const activarCuenta = async () => {
 
   } catch (e) {
     console.error(e)
+    // 1. LIMPIEZA AUTOMÁTICA
+    if (tipoUsuario.value === 'pin') {
+        password.value = ''
+        passwordConfirm.value = ''
+    }
+
     if (e.response && e.response.data) {
       const msg = Object.values(e.response.data).flat().join(', ')
       error.value = msg || "Error al activar cuenta."
@@ -202,6 +208,7 @@ const activarCuenta = async () => {
               {{ tipoUsuario === 'pin' ? 'Tu Nuevo PIN (6 dígitos)' : 'Nueva Contraseña' }}
             </label>
             
+
             <div class="input-group">
               <input 
                 :type="mostrarPassword ? 'text' : 'password'"
@@ -211,9 +218,6 @@ const activarCuenta = async () => {
                 :inputmode="tipoUsuario === 'pin' ? 'numeric' : 'text'"
                 placeholder="******"
               >
-              <button class="btn btn-outline-secondary" type="button" @click="mostrarPassword = !mostrarPassword">
-                👁️
-              </button>
             </div>
             
             <small class="text-muted" v-if="tipoUsuario === 'pin'">
